@@ -146,6 +146,7 @@ pub fn new_test_context(
         mempool.ac_client.clone(),
         node_config.clone(),
         None, /* table info reader */
+        None,
     );
 
     // Configure the testing depending on which API version we're testing.

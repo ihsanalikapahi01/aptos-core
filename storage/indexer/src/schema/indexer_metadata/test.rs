@@ -13,6 +13,13 @@ proptest! {
     ) {
         assert_encode_decode::<IndexerMetadataSchema>(&tag, &metadata);
     }
+
+    #[test]
+    fn test_encode_decode_tailer_metadata(
+        version in any::<Version>(),
+    ) {
+        assert_encode_decode::<TailerMetadataSchema>(&version, &());
+    }
 }
 
 test_no_panic_decoding!(IndexerMetadataSchema);

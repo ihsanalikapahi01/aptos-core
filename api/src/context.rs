@@ -18,7 +18,6 @@ use aptos_api_types::{
 };
 use aptos_config::config::{NodeConfig, RoleType};
 use aptos_crypto::HashValue;
-use aptos_db_indexer::table_info_reader::TableInfoReader;
 use aptos_gas_schedule::{AptosGasParameters, FromOnChainGasSchedule};
 use aptos_logger::{error, info, Schema};
 use aptos_mempool::{MempoolClientRequest, MempoolClientSender, SubmissionStatus};
@@ -34,6 +33,9 @@ use aptos_types::{
     chain_id::ChainId,
     contract_event::EventWithVersion,
     event::EventKey,
+    indexer::{
+        db_tailer_reader::IndexerTransactionEventReader, table_info_reader::TableInfoReader,
+    },
     ledger_info::LedgerInfoWithSignatures,
     on_chain_config::{GasSchedule, GasScheduleV2, OnChainConfig, OnChainExecutionConfig},
     state_store::{
@@ -76,6 +78,7 @@ pub struct Context {
     simulate_txn_stats: Arc<FunctionStats>,
     pub table_info_reader: Option<Arc<dyn TableInfoReader>>,
     pub wait_for_hash_active_connections: Arc<AtomicUsize>,
+    pub txn_event_reader: Option<Arc<dyn IndexerTransactionEventReader>>,
 }
 
 impl std::fmt::Debug for Context {
@@ -91,6 +94,7 @@ impl Context {
         mp_sender: MempoolClientSender,
         node_config: NodeConfig,
         table_info_reader: Option<Arc<dyn TableInfoReader>>,
+        txn_event_reader: Option<Arc<dyn IndexerTransactionEventReader>>,
     ) -> Self {
         let (view_function_stats, simulate_txn_stats) = {
             let log_per_call_stats = node_config.api.periodic_function_stats_sec.is_some();
@@ -129,6 +133,7 @@ impl Context {
             simulate_txn_stats,
             table_info_reader,
             wait_for_hash_active_connections: Arc::new(AtomicUsize::new(0)),
+            txn_event_reader,
         }
     }
 

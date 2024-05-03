@@ -284,6 +284,7 @@ impl DbReader for AptosDB {
         })
     }
 
+    /// TODO(bowu): Deprecate after internal index migration
     fn get_events(
         &self,
         event_key: &EventKey,
@@ -724,6 +725,86 @@ impl DbReader for AptosDB {
             self.state_store.get_usage(version)
         })
     }
+
+    fn get_db_backup_iter(
+        &self,
+        start_version: Version,
+        num_transactions: usize,
+    ) -> Result<Box<dyn Iterator<Item = Result<(Transaction, Vec<ContractEvent>)>> + '_,>> {
+        gauged_api("get_db_backup_iter", || {
+            self.error_if_ledger_pruned("Transaction", start_version)?;
+
+            let txn_iter = self
+                .ledger_db
+                .transaction_db()
+                .get_transaction_iter(start_version, num_transactions)?;
+            let mut event_vec_iter = self
+            .ledger_db
+            .event_db()
+            .get_events_by_version_iter(start_version, num_transactions)?;
+        let zipped = txn_iter.enumerate().map(move |(idx, txn_res)| {
+            let version = start_version + idx as u64; // overflow is impossible since it's check upon txn_iter construction.
+
+            let txn = txn_res?;
+            let event_vec = event_vec_iter.next().ok_or_else(|| {
+                AptosDbError::NotFound(format!(
+                    "Events not found when Transaction exists., version {}",
+                    version
+                ))
+            })??;
+            Ok((txn, event_vec))
+        });
+        Ok(Box::new(zipped) as Box<dyn Iterator<Item = Result<(Transaction, Vec<ContractEvent>)>> + '_,> )
+
+        })
+    }
+
+    /// Returns the transaction with proof for a given version, or error if the transaction is not
+    /// found.
+    fn get_transaction_with_proof(
+        &self,
+        version: Version,
+        ledger_version: Version,
+        fetch_events: bool,
+    ) -> Result<TransactionWithProof> {
+        self.error_if_ledger_pruned("Transaction", version)?;
+
+        let proof = self
+            .ledger_db
+            .transaction_info_db()
+            .get_transaction_info_with_proof(
+                version,
+                ledger_version,
+                self.ledger_db.transaction_accumulator_db(),
+            )?;
+        let transaction = self.ledger_db.transaction_db().get_transaction(version)?;
+
+        // If events were requested, also fetch those.
+        let events = if fetch_events {
+            Some(self.ledger_db.event_db().get_events_by_version(version)?)
+        } else {
+            None
+        };
+
+        Ok(TransactionWithProof {
+            version,
+            transaction,
+            events,
+            proof,
+        })
+    }
+
+    fn get_event_by_version_and_index(
+        &self,
+        version: Version,
+        index: u64,
+    ) -> Result<ContractEvent> {
+        gauged_api("get_event_by_version_and_index", || {
+            self.error_if_ledger_pruned("Event", version)?;
+            self.event_store.get_event_by_version_and_index(version, index)
+        })
+
+    }
 }
 
 impl AptosDB {
@@ -829,6 +910,7 @@ impl AptosDB {
         })
     }
 
+    /// TODO(bowu): Deprecate after internal index migration
     fn get_events_by_event_key(
         &self,
         event_key: &EventKey,

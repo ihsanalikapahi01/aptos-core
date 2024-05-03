@@ -103,6 +103,15 @@ pub enum Order {
     Descending,
 }
 
+impl From<aptos_types::indexer::db_tailer_reader::Order> for Order {
+    fn from(order: aptos_types::indexer::db_tailer_reader::Order) -> Self {
+        match order {
+            aptos_types::indexer::db_tailer_reader::Order::Ascending => Self::Ascending,
+            aptos_types::indexer::db_tailer_reader::Order::Descending => Self::Descending,
+        }
+    }
+}
+
 macro_rules! delegate_read {
     ($(
         $(#[$($attr:meta)*])*
@@ -455,6 +464,25 @@ pub trait DbReader: Send + Sync {
 
         /// Returns state storage usage at the end of an epoch.
         fn get_state_storage_usage(&self, version: Option<Version>) -> Result<StateStorageUsage>;
+
+        fn get_db_backup_iter(
+            &self,
+            start_version: Version,
+            num_transactions: usize,
+        ) -> Result<Box<dyn Iterator<Item = Result<(Transaction, Vec<ContractEvent>)>> + '_>>;
+
+        fn get_transaction_with_proof(
+            &self,
+            version: Version,
+            ledger_version: Version,
+            fetch_events: bool,
+        ) -> Result<TransactionWithProof>;
+
+        fn get_event_by_version_and_index(
+            &self,
+            version: Version,
+            index: u64,
+        ) -> Result<ContractEvent>;
     ); // end delegated
 
     /// Returns the latest ledger info.
