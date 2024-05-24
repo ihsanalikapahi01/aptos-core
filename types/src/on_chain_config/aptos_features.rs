@@ -85,6 +85,7 @@ pub enum FeatureFlag {
     AGGREGATOR_V2_IS_AT_LEAST_API = 66,
     CONCURRENT_FUNGIBLE_BALANCE = 67,
     DEFAULT_TO_CONCURRENT_FUNGIBLE_BALANCE = 68,
+    MULTISIG_V2_FIX = 69,
 }
 
 impl FeatureFlag {
@@ -149,6 +150,7 @@ impl FeatureFlag {
             FeatureFlag::CONCURRENT_FUNGIBLE_ASSETS,
             FeatureFlag::AGGREGATOR_V2_IS_AT_LEAST_API,
             FeatureFlag::CONCURRENT_FUNGIBLE_BALANCE,
+            FeatureFlag::MULTISIG_V2_FIX,
         ]
     }
 }
@@ -285,6 +287,10 @@ impl Features {
 
     pub fn is_refundable_bytes_enabled(&self) -> bool {
         self.is_enabled(FeatureFlag::REFUNDABLE_BYTES)
+    }
+
+    pub fn is_multisig_v2_fix_enabled(&self) -> bool {
+        self.is_enabled(FeatureFlag::MULTISIG_V2_FIX)
     }
 
     pub fn get_max_identifier_size(&self) -> u64 {

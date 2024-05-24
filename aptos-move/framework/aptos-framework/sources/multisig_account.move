@@ -75,6 +75,8 @@ module aptos_framework::multisig_account {
     const EPAYLOAD_DOES_NOT_MATCH_HASH: u64 = 2008;
     /// Transaction has not received enough approvals to be executed.
     const ENOT_ENOUGH_APPROVALS: u64 = 2009;
+    /// Provided target function does not match the payload stored in the on-chain transaction.
+    const EPAYLOAD_DOES_NOT_MATCH: u64 = 2010;
     /// Transaction has not received enough rejections to be officially rejected.
     const ENOT_ENOUGH_REJECTIONS: u64 = 10;
     /// Number of signatures required must be more than zero and at most the total number of owners.
@@ -387,7 +389,9 @@ module aptos_framework::multisig_account {
     }
 
     #[view]
-    /// Return the payload for the next transaction in the queue.
+    /// Return the payload for the next transaction in the queue. If no payload is stored on chain, the provided
+    /// payload is returned. If a payload is stored on chain and a non-empty payload is provided, the provided payload
+    /// must match the on-chain payload. Otherwise, this function will abort.
     public fun get_next_transaction_payload(
         multisig_account: address, provided_payload: vector<u8>): vector<u8> acquires MultisigAccount {
         let multisig_account_resource = borrow_global<MultisigAccount>(multisig_account);
@@ -395,7 +399,14 @@ module aptos_framework::multisig_account {
         let transaction = table::borrow(&multisig_account_resource.transactions, sequence_number);
 
         if (option::is_some(&transaction.payload)) {
-            *option::borrow(&transaction.payload)
+            let onchain_payload = option::borrow(&transaction.payload);
+            assert!(
+                !features::multisig_v2_fix_enabled() ||
+                    vector::is_empty(&provided_payload) ||
+                    &provided_payload == onchain_payload,
+                error::invalid_argument(EPAYLOAD_DOES_NOT_MATCH),
+            );
+            *onchain_payload
         } else {
             provided_payload
         }
@@ -1481,7 +1492,7 @@ module aptos_framework::multisig_account {
     fun setup() {
         let framework_signer = &create_signer(@0x1);
         features::change_feature_flags_for_testing(
-            framework_signer, vector[features::get_multisig_accounts_feature(), features::get_multisig_v2_enhancement_feature()], vector[]);
+            framework_signer, vector[features::get_multisig_accounts_feature(), features::get_multisig_v2_enhancement_feature(), features::get_multisig_v2_fix_feature()], vector[]);
         timestamp::set_time_has_started_for_testing(framework_signer);
         chain_id::initialize_for_test(framework_signer, 1);
         let (burn, mint) = aptos_coin::initialize_for_test(framework_signer);
@@ -2458,5 +2469,19 @@ module aptos_framework::multisig_account {
         create_transaction(owner, multisig_account, PAYLOAD);
         reject_transaction(owner, multisig_account, 1);
         execute_rejected_transactions(non_owner, multisig_account, 1);
+    }
+
+    #[test(owner = @0x123)]
+    #[expected_failure(abort_code = 67546, location = Self)]
+    public entry fun test_payload_mismatch_should_fail(
+        owner: &signer,
+    ) acquires MultisigAccount {
+        setup();
+        create_account(address_of(owner));
+        let multisig_account = get_next_multisig_account_address(address_of(owner));
+        create(owner, 1, vector[], vector[]);
+        // Transaction is created with id 1.
+        create_transaction(owner, multisig_account, PAYLOAD);
+        let _ = get_next_transaction_payload(multisig_account, vector[00,11,22,33]);
     }
 }

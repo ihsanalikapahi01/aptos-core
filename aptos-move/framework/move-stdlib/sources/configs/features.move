@@ -579,6 +579,18 @@ module std::features {
         is_enabled(DEFAULT_TO_CONCURRENT_FUNGIBLE_BALANCE)
     }
 
+    /// Whether the multisig v2 fix is enabled. Once enabled, the multisig transaction execution will explicitly
+    /// abort if the provided payload does not match the payload stored on-chain.
+    ///
+    /// Lifetime: transient
+    const MULTISIG_V2_FIX: u64 = 69;
+
+    public fun get_multisig_v2_fix_feature(): u64 { MULTISIG_V2_FIX }
+
+    public fun multisig_v2_fix_enabled(): bool acquires Features {
+        is_enabled(MULTISIG_V2_FIX)
+    }
+
     // ============================================================================================
     // Feature Flag Implementation
 

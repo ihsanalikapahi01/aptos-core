@@ -119,6 +119,7 @@ pub enum FeatureFlag {
     AggregatorV2IsAtLeastApi,
     ConcurrentFungibleBalance,
     DefaultToConcurrentFungibleBalance,
+    MultisigV2Fix,
 }
 
 fn generate_features_blob(writer: &CodeWriter, data: &[u64]) {
@@ -310,6 +311,7 @@ impl From<FeatureFlag> for AptosFeatureFlag {
             FeatureFlag::DefaultToConcurrentFungibleBalance => {
                 AptosFeatureFlag::DEFAULT_TO_CONCURRENT_FUNGIBLE_BALANCE
             },
+            FeatureFlag::MultisigV2Fix => AptosFeatureFlag::MULTISIG_V2_FIX,
         }
     }
 }
@@ -430,6 +432,7 @@ impl From<AptosFeatureFlag> for FeatureFlag {
             AptosFeatureFlag::DEFAULT_TO_CONCURRENT_FUNGIBLE_BALANCE => {
                 FeatureFlag::DefaultToConcurrentFungibleBalance
             },
+            AptosFeatureFlag::MULTISIG_V2_FIX => FeatureFlag::MultisigV2Fix,
         }
     }
 }

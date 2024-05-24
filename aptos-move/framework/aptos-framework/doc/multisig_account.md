@@ -1413,6 +1413,16 @@ Transaction payload cannot be empty.
 
 
 
+<a id="0x1_multisig_account_EPAYLOAD_DOES_NOT_MATCH"></a>
+
+Provided target function does not match the payload stored in the on-chain transaction.
+
+
+<pre><code><b>const</b> <a href="multisig_account.md#0x1_multisig_account_EPAYLOAD_DOES_NOT_MATCH">EPAYLOAD_DOES_NOT_MATCH</a>: u64 = 2010;
+</code></pre>
+
+
+
 <a id="0x1_multisig_account_EPAYLOAD_DOES_NOT_MATCH_HASH"></a>
 
 Provided target function does not match the hash stored in the on-chain transaction.
@@ -1621,7 +1631,9 @@ Return all pending transactions.
 
 ## Function `get_next_transaction_payload`
 
-Return the payload for the next transaction in the queue.
+Return the payload for the next transaction in the queue. If no payload is stored on chain, the provided
+payload is returned. If a payload is stored on chain and a non-empty payload is provided, the provided payload
+must match the on-chain payload. Otherwise, this function will abort.
 
 
 <pre><code>#[view]
@@ -1641,7 +1653,14 @@ Return the payload for the next transaction in the queue.
     <b>let</b> transaction = <a href="../../aptos-stdlib/doc/table.md#0x1_table_borrow">table::borrow</a>(&multisig_account_resource.transactions, sequence_number);
 
     <b>if</b> (<a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_is_some">option::is_some</a>(&transaction.payload)) {
-        *<a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_borrow">option::borrow</a>(&transaction.payload)
+        <b>let</b> onchain_payload = <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_borrow">option::borrow</a>(&transaction.payload);
+        <b>assert</b>!(
+            !<a href="../../aptos-stdlib/../move-stdlib/doc/features.md#0x1_features_multisig_v2_fix_enabled">features::multisig_v2_fix_enabled</a>() ||
+                <a href="../../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector_is_empty">vector::is_empty</a>(&provided_payload) ||
+                &provided_payload == onchain_payload,
+            <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="multisig_account.md#0x1_multisig_account_EPAYLOAD_DOES_NOT_MATCH">EPAYLOAD_DOES_NOT_MATCH</a>),
+        );
+        *onchain_payload
     } <b>else</b> {
         provided_payload
     }
@@ -4015,6 +4034,9 @@ Add new owners, remove owners to remove, update signatures required.
 <b>aborts_if</b> !<b>exists</b>&lt;<a href="multisig_account.md#0x1_multisig_account_MultisigAccount">MultisigAccount</a>&gt;(<a href="multisig_account.md#0x1_multisig_account">multisig_account</a>);
 <b>aborts_if</b> multisig_account_resource.last_executed_sequence_number + 1 &gt; MAX_U64;
 <b>aborts_if</b> !<a href="../../aptos-stdlib/doc/table.md#0x1_table_spec_contains">table::spec_contains</a>(multisig_account_resource.transactions, sequence_number);
+<b>aborts_if</b> <a href="../../aptos-stdlib/../move-stdlib/doc/features.md#0x1_features_spec_multisig_v2_fix_enabled">features::spec_multisig_v2_fix_enabled</a>() && <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_spec_is_some">option::spec_is_some</a>(transaction.payload) &&
+    len(provided_payload) &gt; 0 &&
+    <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_spec_borrow">option::spec_borrow</a>(transaction.payload) != provided_payload;
 <b>ensures</b> <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_spec_is_none">option::spec_is_none</a>(transaction.payload) ==&gt; result == provided_payload;
 </code></pre>
 
