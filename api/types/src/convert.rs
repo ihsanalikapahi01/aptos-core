@@ -25,7 +25,7 @@ use aptos_types::{
     access_path::{AccessPath, Path},
     chain_id::ChainId,
     contract_event::{ContractEvent, EventWithVersion},
-    indexer::table_info_reader::TableInfoReader,
+    indexer::db_tailer_reader::IndexerReader,
     state_store::{
         state_key::{inner::StateKeyInner, StateKey},
         table::{TableHandle, TableInfo},
@@ -66,14 +66,14 @@ const OBJECT_STRUCT: &IdentStr = ident_str!("Object");
 pub struct MoveConverter<'a, S> {
     inner: AptosValueAnnotator<'a, S>,
     db: Arc<dyn DbReader>,
-    table_info_reader: Option<Arc<dyn TableInfoReader>>,
+    table_info_reader: Option<Arc<dyn IndexerReader>>,
 }
 
 impl<'a, S: StateView> MoveConverter<'a, S> {
     pub fn new(
         inner: &'a S,
         db: Arc<dyn DbReader>,
-        table_info_reader: Option<Arc<dyn TableInfoReader>>,
+        table_info_reader: Option<Arc<dyn IndexerReader>>,
     ) -> Self {
         Self {
             inner: AptosValueAnnotator::new(inner),
@@ -1066,7 +1066,7 @@ pub trait AsConverter<R> {
     fn as_converter(
         &self,
         db: Arc<dyn DbReader>,
-        table_info_reader: Option<Arc<dyn TableInfoReader>>,
+        table_info_reader: Option<Arc<dyn IndexerReader>>,
     ) -> MoveConverter<R>;
 }
 
@@ -1074,7 +1074,7 @@ impl<R: StateView> AsConverter<R> for R {
     fn as_converter(
         &self,
         db: Arc<dyn DbReader>,
-        table_info_reader: Option<Arc<dyn TableInfoReader>>,
+        table_info_reader: Option<Arc<dyn IndexerReader>>,
     ) -> MoveConverter<R> {
         MoveConverter::new(self, db, table_info_reader)
     }

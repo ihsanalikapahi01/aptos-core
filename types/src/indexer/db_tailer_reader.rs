@@ -5,6 +5,7 @@ use crate::{
     account_address::AccountAddress,
     contract_event::EventWithVersion,
     event::EventKey,
+    state_store::table::{TableHandle, TableInfo},
     transaction::{AccountTransactionsWithProof, Version},
 };
 use anyhow::Result;
@@ -15,7 +16,9 @@ pub enum Order {
     Descending,
 }
 
-pub trait IndexerTransactionEventReader: Send + Sync {
+pub trait IndexerReader: Send + Sync {
+    fn get_table_info(&self, handle: TableHandle) -> Result<Option<TableInfo>>;
+
     fn get_events(
         &self,
         event_key: &EventKey,

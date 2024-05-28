@@ -17,6 +17,5 @@ pub fn get_fake_context() -> Context {
         mempool.ac_client,
         NodeConfig::default(),
         None, /* table info reader */
-        None,
     )
 }

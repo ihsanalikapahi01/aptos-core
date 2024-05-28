@@ -11,6 +11,7 @@ use aptos_consensus::{
 };
 use aptos_consensus_notifications::ConsensusNotifier;
 use aptos_data_client::client::AptosDataClient;
+use aptos_db_indexer::indexer_reader::IndexerReaders;
 use aptos_event_notifications::{DbBackedOnChainConfig, ReconfigNotificationListener};
 use aptos_indexer_grpc_fullnode::runtime::bootstrap as bootstrap_indexer_grpc;
 use aptos_indexer_grpc_table_info::runtime::{
@@ -31,12 +32,7 @@ use aptos_peer_monitoring_service_server::{
 use aptos_peer_monitoring_service_types::PeerMonitoringServiceMessage;
 use aptos_storage_interface::{DbReader, DbReaderWriter};
 use aptos_time_service::TimeService;
-use aptos_types::{
-    chain_id::ChainId,
-    indexer::{
-        db_tailer_reader::IndexerTransactionEventReader, table_info_reader::TableInfoReader,
-    },
-};
+use aptos_types::{chain_id::ChainId, indexer::db_tailer_reader::IndexerReader};
 use aptos_validator_transaction_pool::VTxnPoolState;
 use futures::channel::{mpsc, mpsc::Sender};
 use std::{sync::Arc, time::Instant};
@@ -79,17 +75,13 @@ pub fn bootstrap_api_and_indexer(
             None => (None, None),
         };
 
+    let indexer_readers = IndexerReaders::new(indexer_async_v2, txn_event_reader);
+
     // Create the API runtime
-    let table_info_reader: Option<Arc<dyn TableInfoReader>> = indexer_async_v2.map(|arc| {
-        let trait_object: Arc<dyn TableInfoReader> = arc;
+    let indexer_reader: Option<Arc<dyn IndexerReader>> = indexer_readers.map(|readers| {
+        let trait_object: Arc<dyn IndexerReader> = Arc::new(readers);
         trait_object
     });
-
-    let txn_event_reader: Option<Arc<dyn IndexerTransactionEventReader>> =
-        txn_event_reader.map(|arc| {
-            let trait_object: Arc<dyn IndexerTransactionEventReader> = arc;
-            trait_object
-        });
 
     let api_runtime = if node_config.api.enabled {
         Some(bootstrap_api(
@@ -97,8 +89,7 @@ pub fn bootstrap_api_and_indexer(
             chain_id,
             db_rw.reader.clone(),
             mempool_client_sender.clone(),
-            table_info_reader.clone(),
-            txn_event_reader.clone(),
+            indexer_reader.clone(),
         )?)
     } else {
         None
@@ -110,7 +101,7 @@ pub fn bootstrap_api_and_indexer(
         chain_id,
         db_rw.reader.clone(),
         mempool_client_sender.clone(),
-        table_info_reader,
+        indexer_reader,
     );
 
     // Create the indexer runtime

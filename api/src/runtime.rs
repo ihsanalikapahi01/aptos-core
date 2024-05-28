@@ -13,12 +13,7 @@ use aptos_config::config::{ApiConfig, NodeConfig};
 use aptos_logger::info;
 use aptos_mempool::MempoolClientSender;
 use aptos_storage_interface::DbReader;
-use aptos_types::{
-    chain_id::ChainId,
-    indexer::{
-        db_tailer_reader::IndexerTransactionEventReader, table_info_reader::TableInfoReader,
-    },
-};
+use aptos_types::{chain_id::ChainId, indexer::db_tailer_reader::IndexerReader};
 use poem::{
     handler,
     http::Method,
@@ -39,20 +34,12 @@ pub fn bootstrap(
     chain_id: ChainId,
     db: Arc<dyn DbReader>,
     mp_sender: MempoolClientSender,
-    table_info_reader: Option<Arc<dyn TableInfoReader>>,
-    txn_event_reader: Option<Arc<dyn IndexerTransactionEventReader>>,
+    indexer_reader: Option<Arc<dyn IndexerReader>>,
 ) -> anyhow::Result<Runtime> {
     let max_runtime_workers = get_max_runtime_workers(&config.api);
     let runtime = aptos_runtimes::spawn_named_runtime("api".into(), Some(max_runtime_workers));
 
-    let context = Context::new(
-        chain_id,
-        db,
-        mp_sender,
-        config.clone(),
-        table_info_reader,
-        txn_event_reader,
-    );
+    let context = Context::new(chain_id, db, mp_sender, config.clone(), indexer_reader);
 
     attach_poem_to_runtime(runtime.handle(), context.clone(), config, false)
         .context("Failed to attach poem to runtime")?;
@@ -353,7 +340,6 @@ mod tests {
             ChainId::test(),
             context.db.clone(),
             context.mempool.ac_client.clone(),
-            None,
             None,
         );
         assert!(ret.is_ok());

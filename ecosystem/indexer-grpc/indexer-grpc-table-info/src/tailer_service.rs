@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use aptos_config::config::NodeConfig;
-use aptos_db_indexer::{db_ops::open_db, db_tailer::DBTailer};
+use aptos_db_indexer::{db_ops::open_tailer_db, db_tailer::DBTailer};
 use aptos_indexer_grpc_utils::counters::{log_grpc_step, IndexerGrpcStep};
 use aptos_storage_interface::DbReader;
 use std::sync::Arc;
@@ -23,7 +23,7 @@ impl TailerService {
             .join(INDEX_ASYNC_DB_TAILER);
         let rocksdb_config = node_config.storage.rocksdb_configs.index_db_config;
         let db = Arc::new(
-            open_db(db_path, &rocksdb_config)
+            open_tailer_db(db_path, &rocksdb_config)
                 .expect("Failed to open up indexer db tailer initially"),
         );
 

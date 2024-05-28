@@ -20,7 +20,7 @@ use aptos_types::{
     account_address::AccountAddress,
     contract_event::{ContractEvent, EventWithVersion},
     event::EventKey,
-    indexer::db_tailer_reader::{IndexerTransactionEventReader, Order},
+    indexer::db_tailer_reader::Order,
     transaction::{AccountTransactionsWithProof, Version},
 };
 use std::sync::Arc;
@@ -63,10 +63,9 @@ impl DBTailer {
             >,
         > = self
             .main_db_reader
-            .get_db_backup_iter(version, self.batch_size)
+            .get_db_tailor_iter(version, self.batch_size)
             .expect("Cannot create db tailer iterator");
         let batch = SchemaBatch::new();
-        let metadata_batch = SchemaBatch::new();
         db_iter.for_each(|res| {
             res.map(|(txn, events)| {
                 if let Some(txn) = txn.try_as_signed_user_txn() {
@@ -98,11 +97,8 @@ impl DBTailer {
             })
             .expect("Failed to iterate db tailer iterator");
         });
-        // write to index db
+        batch.put::<TailerMetadataSchema>(&version, &())?;
         self.db.write_schemas(batch)?;
-        // update the metadata
-        metadata_batch.put::<TailerMetadataSchema>(&version, &())?;
-        self.db.write_schemas(metadata_batch)?;
         Ok(version)
     }
 
@@ -194,10 +190,8 @@ impl DBTailer {
             (event_key, txn_version, seq_num, idx)
         })))
     }
-}
 
-impl IndexerTransactionEventReader for DBTailer {
-    fn get_events(
+    pub fn get_events(
         &self,
         event_key: &EventKey,
         start: u64,
@@ -208,7 +202,7 @@ impl IndexerTransactionEventReader for DBTailer {
         self.get_events_by_event_key(event_key, start, order, limit, ledger_version)
     }
 
-    fn get_events_by_event_key(
+    pub fn get_events_by_event_key(
         &self,
         event_key: &EventKey,
         start_seq_num: u64,
@@ -275,7 +269,7 @@ impl IndexerTransactionEventReader for DBTailer {
         Ok(events_with_version)
     }
 
-    fn get_account_transactions(
+    pub fn get_account_transactions(
         &self,
         address: AccountAddress,
         start_seq_num: u64,

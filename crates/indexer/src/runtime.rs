@@ -96,7 +96,6 @@ pub fn bootstrap(
             mp_sender,
             node_config,
             None, /* table info reader */
-            None,
         ));
         run_forever(indexer_config, context).await;
     });

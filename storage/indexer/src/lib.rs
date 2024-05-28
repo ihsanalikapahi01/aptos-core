@@ -6,9 +6,9 @@ mod db;
 pub mod db_ops;
 pub mod db_tailer;
 pub mod db_v2;
+pub mod indexer_reader;
 mod metadata;
 mod schema;
-pub mod table_info_reader;
 mod utils;
 
 use crate::{

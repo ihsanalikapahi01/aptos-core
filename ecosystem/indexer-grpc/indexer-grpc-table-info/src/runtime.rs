@@ -70,7 +70,6 @@ pub fn bootstrap(
             mp_sender,
             node_config.clone(),
             None,
-            None,
         ));
 
         let mut parser = TableInfoService::new(

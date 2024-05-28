@@ -18,7 +18,7 @@ use aptos_protos::{
     util::timestamp::FILE_DESCRIPTOR_SET as UTIL_TIMESTAMP_FILE_DESCRIPTOR_SET,
 };
 use aptos_storage_interface::DbReader;
-use aptos_types::{chain_id::ChainId, indexer::table_info_reader::TableInfoReader};
+use aptos_types::{chain_id::ChainId, indexer::db_tailer_reader::IndexerReader};
 use std::{net::ToSocketAddrs, sync::Arc};
 use tokio::runtime::Runtime;
 use tonic::{codec::CompressionEncoding, transport::Server};
@@ -34,7 +34,7 @@ pub fn bootstrap(
     chain_id: ChainId,
     db: Arc<dyn DbReader>,
     mp_sender: MempoolClientSender,
-    table_info_reader: Option<Arc<dyn TableInfoReader>>,
+    indexer_reader: Option<Arc<dyn IndexerReader>>,
 ) -> Option<Runtime> {
     if !config.indexer_grpc.enabled {
         return None;
@@ -56,8 +56,7 @@ pub fn bootstrap(
             db,
             mp_sender,
             node_config,
-            table_info_reader,
-            None,
+            indexer_reader,
         ));
         let service_context = ServiceContext {
             context: context.clone(),
