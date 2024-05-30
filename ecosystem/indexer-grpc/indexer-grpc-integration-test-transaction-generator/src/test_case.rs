@@ -7,51 +7,9 @@ use std::path::PathBuf;
 use anyhow::Context;
 use aptos_protos::transaction::v1::transaction::TransactionType;
 use serde::{Serialize, Deserialize};
-use clap::Parser;
 
 const TEST_CASE_CONFIG_FILE_NAME: &str = "test_case_config.yaml";
 const MOVE_FILE_EXTENSION: &str = "move";
-
-/// Args specific to running a node (and its components, e.g. the txn stream) in the
-/// localnet.
-#[derive(Debug, Parser)]
-pub struct TransactionGeneratorArgs {
-    /// The path to the test cases main folder.
-    #[clap(long)]
-    pub test_cases_folder: PathBuf,
-}
-
-
-// impl TransactionGeneratorConfig {
-//     /// Creates a new transaction generator configuration from the given path to the test cases main folder.
-//     fn new(path_to_test_cases_main_folder: PathBuf) -> Self {
-//         Self {
-//             path_to_test_cases_main_folder,
-//         }
-//     }
-
-//     fn start_node() -> anyhow::Result<()> {
-//         todo!()
-//     }
-
-//     /// Load all test cases folders under the test cases main folder.
-//     /// Returns a vector of test cases if all test cases are loaded successfully.
-//     fn load_all_test_cases(&self) -> anyhow::Result<Vec<TestCase>> {
-//         let mut test_cases = Vec::new();
-//         let entries = std::fs::read_dir(&self.path_to_test_cases_main_folder)
-//             .context("Folder does not exist or path is not a folder.")?;
-//         for entry in entries {
-//             let entry = entry.context("Failed to scan test cases due to FS issue.")?;
-//             let path = entry.path();
-//             if path.is_dir() {
-//                 test_cases.push(TestCase::load(path)?);
-//             }
-//         }
-//         Ok(test_cases)
-//     }
-// }
-
-// Internal structs for the transaction generator.
 
 /// Struct that holds the configuration for the transaction generator.
 /// All Move files under test case folder will be scanned and executed in order.
@@ -65,7 +23,7 @@ struct TestCaseConfig {
 }
 
 #[derive(Debug)]
-struct TestCase {
+pub(crate) struct TestCase {
     /// The path to the test case folder.
     test_case_folder: PathBuf,
     /// The configuration for the test case.
@@ -81,20 +39,20 @@ impl TestCase {
     fn load(test_case_folder: PathBuf) -> anyhow::Result<Self> {
         // Makes sure target folder exists.
         if !test_case_folder.is_dir() {
-            return Err(anyhow::anyhow!(format!("Test case folder does not exist or path is not a folder at {:?}.", test_case_folder)));
+            return Err(anyhow::anyhow!(format!("Test case folder does not exist or path is not a folder at path {:?}.", test_case_folder)));
         }
 
         // Loads the config file.
         let test_case_config_path = test_case_folder.join(TEST_CASE_CONFIG_FILE_NAME);
         let test_case_config_raw = std::fs::read_to_string(&test_case_config_path)
-            .context(format!("Config file not found at {:?}.", test_case_config_path))?;
+            .context(format!("Config file not found at path {:?}.", test_case_config_path))?;
         let test_case_config: TestCaseConfig = serde_yaml::from_str(&test_case_config_raw)
-            .context(format!("Config file is malformed at {:?}.", test_case_config_path))?;
+            .context(format!("Config file is malformed at path {:?}.", test_case_config_path))?;
 
         // Scan all move files.
         let mut move_files: Vec<PathBuf> = vec![];
         let entries =  std::fs::read_dir(&test_case_folder)
-            .context(format!("Failed to scan test case folder at {:?}", test_case_folder))?;
+            .context(format!("Failed to scan test case folder at path {:?}", test_case_folder))?;
         for entry in entries {
             let entry = entry.context("Failed to scan move files for one test case.")?;
             let path = entry.path();
@@ -115,10 +73,10 @@ impl TestCase {
     }
 }
 
-fn load_all_test_cases(test_cases_folder: PathBuf) -> anyhow::Result<Vec<TestCase>> {
+pub(crate) fn load_all_test_cases(test_cases_folder: &PathBuf) -> anyhow::Result<Vec<TestCase>> {
     let mut test_cases = Vec::new();
-    let entries = std::fs::read_dir(&test_cases_folder)
-        .context(format!("Main test case folder does not exist or path is not a folder at {:?}", test_cases_folder))?;
+    let entries = std::fs::read_dir(test_cases_folder)
+        .context(format!("Main test case folder does not exist or path is not a folder at path {:?}", test_cases_folder))?;
     for entry in entries {
         let entry = entry.context("Failed to scan test cases due to FS issue.")?;
         let path = entry.path();
@@ -216,7 +174,7 @@ mod tests {
         std::fs::write(move_file_path, "").unwrap();
 
         // Verify the test case is loaded successfully.
-        let test_cases = load_all_test_cases(test_cases_folder).unwrap();
+        let test_cases = load_all_test_cases(&test_cases_folder).unwrap();
         assert_eq!(test_cases.len(), 1);
         assert_eq!(test_cases[0].test_case_config.number_of_transactions, 10);
         assert_eq!(test_cases[0].test_case_config.transaction_type_filter, vec![TransactionType::Validator]);
@@ -252,7 +210,7 @@ mod tests {
         std::fs::write(test_case_config_path, test_case_config_raw).unwrap();
 
         // Verify the test case is loaded successfully.
-        let test_cases = load_all_test_cases(test_cases_folder);
+        let test_cases = load_all_test_cases(&test_cases_folder);
         assert!(test_cases.is_err());
         assert!(test_cases.unwrap_err().to_string().contains("One test case loading failed"));
     }
@@ -260,7 +218,7 @@ mod tests {
     #[test]
     fn test_test_cases_parsing_with_non_existing_folder() {
         // Verify the test case is loaded successfully.
-        let test_cases = load_all_test_cases("/what/ever/folder".into());
+        let test_cases = load_all_test_cases("/what/ever/folder");
         assert!(test_cases.is_err());
         assert!(test_cases.unwrap_err().to_string().contains("Main test case folder does not exist or path is not a folder"));
     }
