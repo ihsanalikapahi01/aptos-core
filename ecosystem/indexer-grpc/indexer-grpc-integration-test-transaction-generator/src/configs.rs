@@ -1,6 +1,8 @@
 // Copyright (c) Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use anyhow::Context;
 use aptos_protos::transaction::v1::transaction::TransactionType;
@@ -68,7 +70,6 @@ struct TestCase {
     test_case_folder: PathBuf,
     /// The configuration for the test case.
     test_case_config: TestCaseConfig,
-
     /// Move files to be executed in order.
     move_files: Vec<PathBuf>,
 }
@@ -76,6 +77,7 @@ struct TestCase {
 impl TestCase {
     /// Creates a new test case from the given test case folder.
     /// It reads the config file first and scans for all move files in the `test_case_folder` folder.
+
     fn load(test_case_folder: PathBuf) -> anyhow::Result<Self> {
         // Makes sure target folder exists.
         if !test_case_folder.is_dir() {
@@ -113,10 +115,10 @@ impl TestCase {
     }
 }
 
-pub fn load_all_test_cases(test_cases_folder: PathBuf) -> anyhow::Result<Vec<TestCase>> {
+fn load_all_test_cases(test_cases_folder: PathBuf) -> anyhow::Result<Vec<TestCase>> {
     let mut test_cases = Vec::new();
     let entries = std::fs::read_dir(&test_cases_folder)
-        .context("Folder does not exist or path is not a folder.")?;
+        .context(format!("Main test case folder does not exist or path is not a folder at {:?}", test_cases_folder))?;
     for entry in entries {
         let entry = entry.context("Failed to scan test cases due to FS issue.")?;
         let path = entry.path();
@@ -253,5 +255,13 @@ mod tests {
         let test_cases = load_all_test_cases(test_cases_folder);
         assert!(test_cases.is_err());
         assert!(test_cases.unwrap_err().to_string().contains("One test case loading failed"));
+    }
+
+    #[test]
+    fn test_test_cases_parsing_with_non_existing_folder() {
+        // Verify the test case is loaded successfully.
+        let test_cases = load_all_test_cases("/what/ever/folder".into());
+        assert!(test_cases.is_err());
+        assert!(test_cases.unwrap_err().to_string().contains("Main test case folder does not exist or path is not a folder"));
     }
 }
