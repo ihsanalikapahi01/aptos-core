@@ -229,10 +229,11 @@ pub fn aptos_prod_ty_builder(
 
     gas_params
         .as_ref()
-        .map(|gas_params| {
-            let max_ty_size = gas_params.vm.txn.max_ty_size;
-            let max_ty_depth = gas_params.vm.txn.max_ty_depth;
-            TypeBuilder::new(max_ty_size.into(), max_ty_depth.into())
+        .map(|_gas_params| {
+            // let max_ty_size = gas_params.vm.txn.max_ty_size;
+            // let max_ty_depth = gas_params.vm.txn.max_ty_depth;
+            // TypeBuilder::new(max_ty_size.into(), max_ty_depth.into())
+            aptos_default_ty_builder(features)
         })
         .unwrap_or(aptos_default_ty_builder(features))
 }
