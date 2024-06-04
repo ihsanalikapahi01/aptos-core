@@ -4,6 +4,7 @@
 
 use crate::cached_state_view::ShardedStateCache;
 use aptos_crypto::{hash::CryptoHash, HashValue};
+pub use aptos_types::indexer::db_tailer_reader::Order;
 use aptos_types::{
     account_address::AccountAddress,
     account_config::NewBlockEvent,
@@ -93,21 +94,6 @@ impl From<aptos_secure_net::Error> for Error {
     fn from(error: aptos_secure_net::Error) -> Self {
         Self::ServiceError {
             error: format!("{}", error),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum Order {
-    Ascending,
-    Descending,
-}
-
-impl From<aptos_types::indexer::db_tailer_reader::Order> for Order {
-    fn from(order: aptos_types::indexer::db_tailer_reader::Order) -> Self {
-        match order {
-            aptos_types::indexer::db_tailer_reader::Order::Ascending => Self::Ascending,
-            aptos_types::indexer::db_tailer_reader::Order::Descending => Self::Descending,
         }
     }
 }
@@ -470,13 +456,6 @@ pub trait DbReader: Send + Sync {
             start_version: Version,
             num_transactions: usize,
         ) -> Result<Box<dyn Iterator<Item = Result<(Transaction, Vec<ContractEvent>)>> + '_>>;
-
-        fn get_transaction_with_proof(
-            &self,
-            version: Version,
-            ledger_version: Version,
-            fetch_events: bool,
-        ) -> Result<TransactionWithProof>;
 
         fn get_event_by_version_and_index(
             &self,

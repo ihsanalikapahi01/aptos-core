@@ -7,18 +7,15 @@ pub mod db_ops;
 pub mod db_tailer;
 pub mod db_v2;
 pub mod indexer_reader;
-mod metadata;
-mod schema;
-mod utils;
 
-use crate::{
-    db::INDEX_DB_NAME,
+use crate::db::INDEX_DB_NAME;
+use aptos_config::config::RocksdbConfig;
+use aptos_db_indexer_schemas::{
     metadata::{MetadataKey, MetadataValue},
     schema::{
         column_families, indexer_metadata::IndexerMetadataSchema, table_info::TableInfoSchema,
     },
 };
-use aptos_config::config::RocksdbConfig;
 use aptos_logger::warn;
 use aptos_resource_viewer::{AnnotatedMoveValue, AptosValueAnnotator};
 use aptos_rocksdb_options::gen_rocksdb_options;

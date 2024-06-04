@@ -14,14 +14,14 @@
 use crate::{schema::EVENT_BY_KEY_CF_NAME, utils::ensure_slice_len_eq};
 use anyhow::Result;
 use aptos_schemadb::{
-    define_schema,
+    define_pub_schema,
     schema::{KeyCodec, ValueCodec},
 };
 use aptos_types::{event::EventKey, transaction::Version};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::mem::size_of;
 
-define_schema!(EventByKeySchema, Key, Value, EVENT_BY_KEY_CF_NAME);
+define_pub_schema!(EventByKeySchema, Key, Value, EVENT_BY_KEY_CF_NAME);
 
 type SeqNum = u64;
 type Key = (EventKey, SeqNum);

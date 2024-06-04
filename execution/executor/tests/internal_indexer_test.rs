@@ -130,9 +130,11 @@ pub fn create_test_db() -> (Arc<AptosDB>, LocalAccount) {
 
 #[test]
 fn test_db_tailer_data() {
+    use std::{thread, time::Duration};
     // create test db
     let (aptos_db, core_account) = create_test_db();
-    let total_version = aptos_db.get_latest_version().unwrap();
+    let total_version = aptos_db.get_synced_version().unwrap();
+    assert_eq!(total_version, 11);
     // create db tailer
     let rocksdb_config = RocksdbConfig::default();
     let temp_path = TempPath::new();
@@ -140,22 +142,32 @@ fn test_db_tailer_data() {
         open_tailer_db(temp_path.as_ref(), &rocksdb_config)
             .expect("Failed to open up indexer db tailer initially"),
     );
-    let tailer = DBTailer::new(db, aptos_db, &IndexDBTailerConfig::new(true, 2));
+    let tailer = DBTailer::new(
+        db.clone(),
+        aptos_db,
+        &IndexDBTailerConfig::new(true, true, 2),
+    );
     // assert the data matches the expected data
     let mut version = tailer.get_persisted_version();
     assert_eq!(version, 0);
     while version < total_version {
         version = tailer.process_a_batch(Some(version)).unwrap();
     }
+    // wait for the commit to finish
+    thread::sleep(Duration::from_millis(100));
+    // tailer has process all the transactions
+    assert_eq!(tailer.get_persisted_version(), total_version);
+
     let txn_iter = tailer
         .get_account_transaction_version_iter(core_account.address(), 0, 1000, 1000)
         .unwrap();
     let res: Vec<_> = txn_iter.collect();
-    // core account submitted 7 transactions, and the first transaction is version 2
+
+    // core account submitted 7 transactions including last reconfig txn, and the first transaction is version 2
     assert!(res.len() == 7);
     assert!(res[0].as_ref().unwrap().1 == 2);
 
     let x = tailer.get_event_by_key_iter().unwrap();
     let res: Vec<_> = x.collect();
-    assert!(!res.is_empty());
+    assert!(res.len() == 14);
 }

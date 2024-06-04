@@ -58,7 +58,7 @@ pub enum IndexerGrpcStep {
     TableInfoProcessedBatch,
     // [Indexer Table Info] Processed transactions from fullnode
     TableInfoProcessed,
-    // [Indexer DB Tailer] Tailed AptosDB and write to indexer DB
+    // [Indexer DB Tailer] Tailed AptosDB and wrote to indexer DB
     DBTailerProcessed,
 }
 

@@ -42,28 +42,28 @@ impl TailerService {
         let mut start_version = self.db_tailer.get_persisted_version();
         loop {
             let start_time: std::time::Instant = std::time::Instant::now();
-            let cur_version = self
+            let next_version = self
                 .db_tailer
                 .process_a_batch(Some(start_version))
                 .expect("Failed to run indexer db tailer");
 
-            if cur_version == start_version {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if next_version == start_version {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 continue;
             }
-            start_version = cur_version;
             log_grpc_step(
                 SERVICE_TYPE,
                 IndexerGrpcStep::DBTailerProcessed,
-                None,
-                None,
+                Some(start_version as i64),
+                Some(next_version as i64),
                 None,
                 None,
                 Some(start_time.elapsed().as_secs_f64()),
                 None,
-                Some(cur_version as i64),
+                Some((next_version - start_version) as i64),
                 None,
             );
+            start_version = next_version;
         }
     }
 }

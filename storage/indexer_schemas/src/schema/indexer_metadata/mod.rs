@@ -12,12 +12,12 @@ use crate::{
 };
 use anyhow::Result;
 use aptos_schemadb::{
-    define_schema,
+    define_pub_schema,
     schema::{KeyCodec, ValueCodec},
 };
 use aptos_types::transaction::Version;
 
-define_schema!(
+define_pub_schema!(
     IndexerMetadataSchema,
     MetadataKey,
     MetadataValue,
@@ -44,7 +44,7 @@ impl ValueCodec<IndexerMetadataSchema> for MetadataValue {
     }
 }
 
-define_schema!(TailerMetadataSchema, Version, (), TAILER_METADATA_CF_NAME);
+define_pub_schema!(TailerMetadataSchema, Version, (), TAILER_METADATA_CF_NAME);
 
 impl KeyCodec<TailerMetadataSchema> for Version {
     fn encode_key(&self) -> Result<Vec<u8>> {

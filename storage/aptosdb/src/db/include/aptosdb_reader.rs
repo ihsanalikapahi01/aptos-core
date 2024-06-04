@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use aptos_types::block_info::BlockHeight;
-use itertools::zip_eq;
 
 impl DbReader for AptosDB {
     fn get_epoch_ending_ledger_infos(
@@ -732,67 +731,30 @@ impl DbReader for AptosDB {
         start_version: Version,
         num_transactions: usize,
     ) -> Result<Box<dyn Iterator<Item = Result<(Transaction, Vec<ContractEvent>)>> + '_,>> {
-        gauged_api("get_db_tailor_iter", || {
+        gauged_api("get_db_tailer_iter", || {
             self.error_if_ledger_pruned("Transaction", start_version)?;
 
             let txn_iter = self
                 .ledger_db
                 .transaction_db()
                 .get_transaction_iter(start_version, num_transactions)?;
-            let event_vec_iter = self
+            let mut event_vec_iter = self
             .ledger_db
             .event_db()
             .get_events_by_version_iter(start_version, num_transactions)?;
-
-        let zipped = zip_eq(txn_iter, event_vec_iter).enumerate().map(move |(idx, (txn_res, event_vec_res))| {
+        let zipped = txn_iter.enumerate().map(move |(idx, txn_res)| {
             let version = start_version + idx as u64; // overflow is impossible since it's check upon txn_iter construction.
 
             let txn = txn_res?;
-            let event_vec = event_vec_res.map_err(|_e| {
+            let event_vec = event_vec_iter.next().ok_or_else(|| {
                 AptosDbError::NotFound(format!(
                     "Events not found when Transaction exists., version {}",
                     version
                 ))
-            })?;
+            })??;
             Ok((txn, event_vec))
         });
         Ok(Box::new(zipped) as Box<dyn Iterator<Item = Result<(Transaction, Vec<ContractEvent>)>> + '_,> )
-
-        })
-    }
-
-    /// Returns the transaction with proof for a given version, or error if the transaction is not
-    /// found.
-    fn get_transaction_with_proof(
-        &self,
-        version: Version,
-        ledger_version: Version,
-        fetch_events: bool,
-    ) -> Result<TransactionWithProof> {
-        self.error_if_ledger_pruned("Transaction", version)?;
-
-        let proof = self
-            .ledger_db
-            .transaction_info_db()
-            .get_transaction_info_with_proof(
-                version,
-                ledger_version,
-                self.ledger_db.transaction_accumulator_db(),
-            )?;
-        let transaction = self.ledger_db.transaction_db().get_transaction(version)?;
-
-        // If events were requested, also fetch those.
-        let events = if fetch_events {
-            Some(self.ledger_db.event_db().get_events_by_version(version)?)
-        } else {
-            None
-        };
-
-        Ok(TransactionWithProof {
-            version,
-            transaction,
-            events,
-            proof,
         })
     }
 

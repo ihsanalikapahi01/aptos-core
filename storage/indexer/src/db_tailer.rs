@@ -1,7 +1,8 @@
 // Copyright (c) Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
+use aptos_config::config::index_db_tailer_config::IndexDBTailerConfig;
+use aptos_db_indexer_schemas::{
     schema::{
         event_by_key::EventByKeySchema, event_by_version::EventByVersionSchema,
         indexer_metadata::TailerMetadataSchema, transaction_by_account::TransactionByAccountSchema,
@@ -11,7 +12,6 @@ use crate::{
         MAX_REQUEST_LIMIT,
     },
 };
-use aptos_config::config::index_db_tailer_config::IndexDBTailerConfig;
 use aptos_schemadb::{ReadOptions, SchemaBatch, DB};
 use aptos_storage_interface::{
     db_ensure as ensure, db_other_bail as bail, AptosDbError, DbReader, Result,
@@ -23,20 +23,78 @@ use aptos_types::{
     indexer::db_tailer_reader::Order,
     transaction::{AccountTransactionsWithProof, Version},
 };
-use std::sync::Arc;
+use std::{
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
+    thread,
+};
+
+pub struct DBCommitter {
+    db: Arc<DB>,
+    receiver: Receiver<Option<SchemaBatch>>,
+}
+
+impl DBCommitter {
+    pub fn new(db: Arc<DB>, receiver: Receiver<Option<SchemaBatch>>) -> Self {
+        Self { db, receiver }
+    }
+
+    pub fn run(&self) {
+        loop {
+            let batch_opt = self
+                .receiver
+                .recv()
+                .expect("Failed to receive batch from DBTailer");
+            if let Some(batch) = batch_opt {
+                self.db
+                    .write_schemas(batch)
+                    .expect("Failed to write batch to indexer db");
+            } else {
+                break;
+            }
+        }
+    }
+}
 
 pub struct DBTailer {
     pub db: Arc<DB>,
     pub main_db_reader: Arc<dyn DbReader>,
-    batch_size: usize,
+    config: IndexDBTailerConfig,
+    sender: Sender<Option<SchemaBatch>>,
+    committer_handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for DBTailer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.committer_handle.take() {
+            self.sender
+                .send(None)
+                .expect("Failed to send None to DBTailer committer");
+            handle
+                .join()
+                .expect("DBTailer committer thread fails to join");
+        }
+    }
 }
 
 impl DBTailer {
     pub fn new(db: Arc<DB>, db_reader: Arc<dyn DbReader>, config: &IndexDBTailerConfig) -> Self {
+        let (sender, reciver) = mpsc::channel();
+
+        let db_clone = db.clone();
+        let committer_handle = thread::spawn(move || {
+            let committer = DBCommitter::new(db, reciver);
+            committer.run();
+        });
+
         Self {
-            db,
+            db: db_clone,
             main_db_reader: db_reader,
-            batch_size: config.batch_size,
+            config: *config,
+            sender,
+            committer_handle: Some(committer_handle),
         }
     }
 
@@ -46,6 +104,7 @@ impl DBTailer {
             .db
             .rev_iter::<TailerMetadataSchema>(Default::default())
             .expect("Cannot create db tailer metadata iterator");
+        rev_iter_res.seek_to_last();
         rev_iter_res
             .next()
             .map(|res| res.map_or(0, |(version, _)| version))
@@ -63,42 +122,47 @@ impl DBTailer {
             >,
         > = self
             .main_db_reader
-            .get_db_tailor_iter(version, self.batch_size)
-            .expect("Cannot create db tailer iterator");
+            .get_db_tailor_iter(version, self.config.batch_size)?;
         let batch = SchemaBatch::new();
         db_iter.for_each(|res| {
             res.map(|(txn, events)| {
                 if let Some(txn) = txn.try_as_signed_user_txn() {
-                    batch
-                        .put::<TransactionByAccountSchema>(
-                            &(txn.sender(), txn.sequence_number()),
-                            &version,
-                        )
-                        .expect("Failed to put txn to db tailer batch");
+                    if self.config.enable_transaction {
+                        batch
+                            .put::<TransactionByAccountSchema>(
+                                &(txn.sender(), txn.sequence_number()),
+                                &version,
+                            )
+                            .expect("Failed to put transactions to db tailer batch");
+                    }
 
-                    events.iter().enumerate().for_each(|(idx, event)| {
-                        if let ContractEvent::V1(v1) = event {
-                            batch
-                                .put::<EventByKeySchema>(
-                                    &(*v1.key(), v1.sequence_number()),
-                                    &(version, idx as u64),
-                                )
-                                .expect("Failed to event by key to db tailer batch");
-                            batch
-                                .put::<EventByVersionSchema>(
-                                    &(*v1.key(), version, v1.sequence_number()),
-                                    &(idx as u64),
-                                )
-                                .expect("Failed to event by version to db tailer batch");
-                        }
-                    });
+                    if self.config.enable_event {
+                        events.iter().enumerate().for_each(|(idx, event)| {
+                            if let ContractEvent::V1(v1) = event {
+                                batch
+                                    .put::<EventByKeySchema>(
+                                        &(*v1.key(), v1.sequence_number()),
+                                        &(version, idx as u64),
+                                    )
+                                    .expect("Failed to events by key to db tailer batch");
+                                batch
+                                    .put::<EventByVersionSchema>(
+                                        &(*v1.key(), version, v1.sequence_number()),
+                                        &(idx as u64),
+                                    )
+                                    .expect("Failed to events by version to db tailer batch");
+                            }
+                        });
+                    }
                 }
                 version += 1;
             })
             .expect("Failed to iterate db tailer iterator");
         });
-        batch.put::<TailerMetadataSchema>(&version, &())?;
-        self.db.write_schemas(batch)?;
+        batch.put::<TailerMetadataSchema>(&(version - 1), &())?;
+        self.sender
+            .send(Some(batch))
+            .map_err(|e| AptosDbError::Other(e.to_string()))?;
         Ok(version)
     }
 
@@ -179,7 +243,7 @@ impl DBTailer {
         Ok(result)
     }
 
-    #[cfg(any(test, feature = "test"))]
+    #[cfg(any(test, feature = "fuzzing"))]
     pub fn get_event_by_key_iter(
         &self,
     ) -> Result<Box<dyn Iterator<Item = (EventKey, u64, u64, u64)> + '_>> {
@@ -283,7 +347,7 @@ impl DBTailer {
             .get_account_transaction_version_iter(address, start_seq_num, limit, ledger_version)?
             .map(|result| {
                 let (_seq_num, txn_version) = result?;
-                self.main_db_reader.get_transaction_with_proof(
+                self.main_db_reader.get_transaction_by_version(
                     txn_version,
                     ledger_version,
                     include_events,

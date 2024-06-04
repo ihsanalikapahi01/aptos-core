@@ -8,8 +8,6 @@ use aptos_types::{
     account_address::AccountAddress, indexer::db_tailer_reader::Order, transaction::Version,
 };
 
-pub const MAX_REQUEST_LIMIT: u64 = 10_000;
-
 pub fn ensure_slice_len_eq(data: &[u8], len: usize) -> Result<()> {
     ensure!(
         data.len() == len,
@@ -19,6 +17,8 @@ pub fn ensure_slice_len_eq(data: &[u8], len: usize) -> Result<()> {
     );
     Ok(())
 }
+
+pub const MAX_REQUEST_LIMIT: u64 = 10_000;
 
 pub fn error_if_too_many_requested(num_requested: u64, max_allowed: u64) -> Result<()> {
     if num_requested > max_allowed {
@@ -52,7 +52,7 @@ pub struct AccountTransactionVersionIter<'a> {
 }
 
 impl<'a> AccountTransactionVersionIter<'a> {
-    pub(crate) fn new(
+    pub fn new(
         inner: SchemaIterator<'a, TransactionByAccountSchema>,
         address: AccountAddress,
         end_seq_num: u64,

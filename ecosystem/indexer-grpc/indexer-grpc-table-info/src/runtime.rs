@@ -17,13 +17,12 @@ pub fn bootstrap_db_tailer(
     config: &NodeConfig,
     db_rw: DbReaderWriter,
 ) -> Option<(Runtime, Arc<DBTailer>)> {
-    if !config.indexer_table_info.enabled {
+    if !(config.index_db_tailer.enable_event() || config.index_db_tailer.enable_transaction()) {
         return None;
     }
     let runtime = aptos_runtimes::spawn_named_runtime("index-db-tailer".to_string(), None);
     // Set up db config and open up the db initially to read metadata
-    let node_config = config.clone();
-    let mut tailer_service = TailerService::new(db_rw.reader, &node_config);
+    let mut tailer_service = TailerService::new(db_rw.reader, config);
     let db_tailer = tailer_service.get_db_tailer();
     // Spawn the runtime for db tailer
     runtime.spawn(async move {

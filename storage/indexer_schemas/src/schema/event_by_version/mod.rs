@@ -11,17 +11,17 @@
 //! | event_key | txn_ver | seq_num |   idx   |
 //! ```
 
-use crate::schema::{ensure_slice_len_eq, EVENT_BY_VERSION_CF_NAME};
+use crate::{schema::EVENT_BY_VERSION_CF_NAME, utils::ensure_slice_len_eq};
 use anyhow::Result;
 use aptos_schemadb::{
-    define_schema,
+    define_pub_schema,
     schema::{KeyCodec, ValueCodec},
 };
 use aptos_types::{event::EventKey, transaction::Version};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::mem::size_of;
 
-define_schema!(EventByVersionSchema, Key, Value, EVENT_BY_VERSION_CF_NAME);
+define_pub_schema!(EventByVersionSchema, Key, Value, EVENT_BY_VERSION_CF_NAME);
 
 type SeqNum = u64;
 type Key = (EventKey, Version, SeqNum);
