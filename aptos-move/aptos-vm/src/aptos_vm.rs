@@ -295,7 +295,7 @@ impl AptosVM {
         let aggregator_v2_type_tagging = override_is_delayed_field_optimization_capable
             && features.is_aggregator_v2_delayed_fields_enabled();
 
-        let ty_builder = aptos_prod_ty_builder(&features, &gas_params);
+        // let ty_builder = aptos_prod_ty_builder(&features, &gas_params);
         let move_vm = MoveVmExt::new(
             native_gas_params,
             misc_gas_params,
@@ -305,7 +305,7 @@ impl AptosVM {
             timed_features.clone(),
             resolver,
             aggregator_v2_type_tagging,
-            ty_builder,
+            TypeBuilder::new(256, 128),
         )
         .expect("should be able to create Move VM; check if there are duplicated natives");
 
