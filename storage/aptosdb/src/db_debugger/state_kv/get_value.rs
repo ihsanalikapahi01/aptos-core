@@ -1,7 +1,11 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{db_debugger::common::DbDir, schema::state_value::StateValueSchema};
+use crate::{
+    db_debugger::common::DbDir,
+    schema::{state_value::StateValueSchema, state_value_by_key_hash::StateValueByKeyHashSchema},
+};
+use aptos_crypto::hash::CryptoHash;
 use aptos_schemadb::ReadOptions;
 use aptos_storage_interface::Result;
 use aptos_types::{state_store::state_key::StateKey, transaction::Version};
@@ -52,14 +56,23 @@ impl Cmd {
         let mut read_opts = ReadOptions::default();
         // We want `None` if the state_key changes in iteration.
         read_opts.set_prefix_same_as_start(true);
-        let mut iter = db
-            .db_shard(key.get_shard_id())
-            .iter::<StateValueSchema>(read_opts)?;
-        iter.seek(&(key.clone(), self.version))?;
-        let res = iter
-            .next()
-            .transpose()?
-            .and_then(|((_, version), value_opt)| value_opt.map(|value| (version, value)));
+        let res = if db.enabled_sharding() {
+            let mut iter = db
+                .db_shard(key.get_shard_id())
+                .iter::<StateValueByKeyHashSchema>(read_opts)?;
+            iter.seek(&(key.hash(), self.version))?;
+            iter.next()
+                .transpose()?
+                .and_then(|((_, version), value_opt)| value_opt.map(|value| (version, value)))
+        } else {
+            let mut iter = db
+                .db_shard(key.get_shard_id())
+                .iter::<StateValueSchema>(read_opts)?;
+            iter.seek(&(key.clone(), self.version))?;
+            iter.next()
+                .transpose()?
+                .and_then(|((_, version), value_opt)| value_opt.map(|value| (version, value)))
+        };
 
         match res {
             None => {

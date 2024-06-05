@@ -5,7 +5,9 @@
 
 use crate::{
     common::NUM_STATE_SHARDS,
-    db_options::{gen_state_kv_cfds, state_kv_db_column_families},
+    db_options::{
+        gen_state_kv_cfds, state_kv_db_column_families, state_kv_db_new_key_column_families,
+    },
     metrics::OTHER_TIMERS_SECONDS,
     schema::db_metadata::{DbMetadataKey, DbMetadataSchema, DbMetadataValue},
     utils::truncation_helper::{get_state_kv_commit_progress, truncate_state_kv_db_shards},
@@ -49,13 +51,19 @@ impl StateKvDb {
             });
         }
 
-        Self::open(db_paths, rocksdb_configs.state_kv_db_config, readonly)
+        Self::open(
+            db_paths,
+            rocksdb_configs.state_kv_db_config,
+            readonly,
+            sharding,
+        )
     }
 
     pub(crate) fn open(
         db_paths: &StorageDirPaths,
         state_kv_db_config: RocksdbConfig,
         readonly: bool,
+        enable_sharding: bool,
     ) -> Result<Self> {
         let state_kv_metadata_db_path =
             Self::metadata_db_path(db_paths.state_kv_db_metadata_root_path());
@@ -65,6 +73,7 @@ impl StateKvDb {
             STATE_KV_METADATA_DB_NAME,
             &state_kv_db_config,
             readonly,
+            enable_sharding,
         )?);
 
         info!(
@@ -76,7 +85,7 @@ impl StateKvDb {
         let state_kv_db_shards = {
             arr![{
                 let shard_root_path = db_paths.state_kv_db_shard_root_path(shard_id as u8);
-                let db = Self::open_shard(shard_root_path, shard_id as u8, &state_kv_db_config, readonly)?;
+                let db = Self::open_shard(shard_root_path, shard_id as u8, &state_kv_db_config, readonly, enable_sharding)?;
                 shard_id += 1;
                 Arc::new(db)
             }; 16]
@@ -155,6 +164,7 @@ impl StateKvDb {
             &StorageDirPaths::from_path(db_root_path),
             RocksdbConfig::default(),
             false,
+            true,
         )?;
         let cp_state_kv_db_path = cp_root_path.as_ref().join(STATE_KV_DB_FOLDER_NAME);
 
@@ -222,6 +232,7 @@ impl StateKvDb {
         shard_id: u8,
         state_kv_db_config: &RocksdbConfig,
         readonly: bool,
+        enable_sharding: bool,
     ) -> Result<DB> {
         let db_name = format!("state_kv_db_shard_{}", shard_id);
         Self::open_db(
@@ -229,6 +240,7 @@ impl StateKvDb {
             &db_name,
             state_kv_db_config,
             readonly,
+            enable_sharding,
         )
     }
 
@@ -237,20 +249,25 @@ impl StateKvDb {
         name: &str,
         state_kv_db_config: &RocksdbConfig,
         readonly: bool,
+        enable_sharding: bool,
     ) -> Result<DB> {
         Ok(if readonly {
             DB::open_cf_readonly(
                 &gen_rocksdb_options(state_kv_db_config, true),
                 path,
                 name,
-                state_kv_db_column_families(),
+                if enable_sharding {
+                    state_kv_db_new_key_column_families()
+                } else {
+                    state_kv_db_column_families()
+                },
             )?
         } else {
             DB::open_cf(
                 &gen_rocksdb_options(state_kv_db_config, false),
                 path,
                 name,
-                gen_state_kv_cfds(state_kv_db_config),
+                gen_state_kv_cfds(state_kv_db_config, enable_sharding),
             )?
         })
     }

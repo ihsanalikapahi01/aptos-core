@@ -14,7 +14,9 @@ use crate::{
         stale_node_index::StaleNodeIndexSchema,
         stale_node_index_cross_epoch::StaleNodeIndexCrossEpochSchema,
         stale_state_value_index::StaleStateValueIndexSchema,
+        stale_state_value_index_by_key_hash::StaleStateValueIndexByKeyHashSchema,
         state_value::StateValueSchema,
+        state_value_by_key_hash::StateValueByKeyHashSchema,
         state_value_index::StateValueIndexSchema,
         version_data::VersionDataSchema,
     },
@@ -56,7 +58,10 @@ use aptos_types::{
         create_empty_sharded_state_updates,
         state_key::{prefix::StateKeyPrefix, StateKey},
         state_storage_usage::StateStorageUsage,
-        state_value::{StaleStateValueIndex, StateValue, StateValueChunkWithProof},
+        state_value::{
+            StaleStateValueByKeyHashIndex, StaleStateValueIndex, StateValue,
+            StateValueChunkWithProof,
+        },
         ShardedStateUpdates, StateViewId,
     },
     transaction::Version,
@@ -146,18 +151,7 @@ impl DbReader for StateDb {
         state_key: &StateKey,
         version: Version,
     ) -> Result<Option<(Version, StateValue)>> {
-        let mut read_opts = ReadOptions::default();
-        // We want `None` if the state_key changes in iteration.
-        read_opts.set_prefix_same_as_start(true);
-        let mut iter = self
-            .state_kv_db
-            .db_shard(state_key.get_shard_id())
-            .iter::<StateValueSchema>(read_opts)?;
-        iter.seek(&(state_key.clone(), version))?;
-        Ok(iter
-            .next()
-            .transpose()?
-            .and_then(|((_, version), value_opt)| value_opt.map(|value| (version, value))))
+        self.get_state_value_with_version_by_version(state_key, version)
     }
 
     /// Returns the proof of the given state key and version.
@@ -278,6 +272,37 @@ impl StateDb {
                     ))
                 })
             })
+    }
+
+    fn get_state_value_with_version_by_version(
+        &self,
+        state_key: &StateKey,
+        version: Version,
+    ) -> Result<Option<(Version, StateValue)>> {
+        let mut read_opts = ReadOptions::default();
+        // We want `None` if the state_key changes in iteration.
+        read_opts.set_prefix_same_as_start(true);
+        if self.state_kv_db.enabled_sharding() {
+            let mut iter = self
+                .state_kv_db
+                .db_shard(state_key.get_shard_id())
+                .iter::<StateValueByKeyHashSchema>(read_opts)?;
+            iter.seek(&(state_key.hash(), version))?;
+            Ok(iter
+                .next()
+                .transpose()?
+                .and_then(|((_, version), value_opt)| value_opt.map(|value| (version, value))))
+        } else {
+            let mut iter = self
+                .state_kv_db
+                .db_shard(state_key.get_shard_id())
+                .iter::<StateValueSchema>(read_opts)?;
+            iter.seek(&(state_key.clone(), version))?;
+            Ok(iter
+                .next()
+                .transpose()?
+                .and_then(|((_, version), value_opt)| value_opt.map(|value| (version, value))))
+        }
     }
 }
 
@@ -605,7 +630,7 @@ impl StateStore {
         batch: &SchemaBatch,
         sharded_state_kv_batches: &ShardedStateKvSchemaBatch,
         state_kv_metadata_batch: &SchemaBatch,
-        put_state_value_indices: bool,
+        enable_sharding: bool,
     ) -> Result<()> {
         let _timer = OTHER_TIMERS_SECONDS
             .with_label_values(&["put_writesets"])
@@ -635,6 +660,7 @@ impl StateStore {
             sharded_state_kv_batches,
             /*skip_usage=*/ false,
             None,
+            enable_sharding,
         )?;
 
         self.put_state_values(
@@ -642,7 +668,7 @@ impl StateStore {
             first_version,
             sharded_state_kv_batches,
             state_kv_metadata_batch,
-            put_state_value_indices,
+            enable_sharding,
         )?;
 
         Ok(())
@@ -658,7 +684,7 @@ impl StateStore {
         ledger_batch: &SchemaBatch,
         sharded_state_kv_batches: &ShardedStateKvSchemaBatch,
         state_kv_metadata_batch: &SchemaBatch,
-        put_state_value_indices: bool,
+        enable_sharding: bool,
         skip_usage: bool,
         last_checkpoint_index: Option<usize>,
     ) -> Result<()> {
@@ -675,6 +701,7 @@ impl StateStore {
             sharded_state_kv_batches,
             skip_usage,
             last_checkpoint_index,
+            enable_sharding,
         )?;
 
         let _timer = OTHER_TIMERS_SECONDS
@@ -686,7 +713,7 @@ impl StateStore {
             first_version,
             sharded_state_kv_batches,
             state_kv_metadata_batch,
-            put_state_value_indices,
+            enable_sharding,
         )
     }
 
@@ -696,7 +723,7 @@ impl StateStore {
         first_version: Version,
         sharded_state_kv_batches: &ShardedStateKvSchemaBatch,
         state_kv_metadata_batch: &SchemaBatch,
-        put_state_value_indices: bool,
+        enable_sharding: bool,
     ) -> Result<()> {
         sharded_state_kv_batches
             .par_iter()
@@ -709,7 +736,14 @@ impl StateStore {
                         let version = first_version + i as Version;
                         let kvs = &shards[shard_id];
                         kvs.iter().map(move |(k, v)| {
-                            batch.put::<StateValueSchema>(&(k.clone(), version), v)
+                            if enable_sharding {
+                                batch.put::<StateValueByKeyHashSchema>(
+                                    &(k.clone().hash(), version),
+                                    v,
+                                )
+                            } else {
+                                batch.put::<StateValueSchema>(&(k.clone(), version), v)
+                            }
                         })
                     })
                     .collect::<Result<_>>()
@@ -718,7 +752,7 @@ impl StateStore {
         // Eventually this index will move to indexer side. For now we temporarily write this into
         // metadata db to unblock the sharded DB migration.
         // TODO(grao): Remove when we are ready.
-        if put_state_value_indices {
+        if enable_sharding {
             value_state_sets
                 .par_iter()
                 .enumerate()
@@ -762,6 +796,7 @@ impl StateStore {
         sharded_state_kv_batches: &ShardedStateKvSchemaBatch,
         skip_usage: bool,
         last_checkpoint_index: Option<usize>,
+        enable_sharding: bool,
     ) -> Result<()> {
         let _timer = OTHER_TIMERS_SECONDS
             .with_label_values(&["put_stats_and_indices"])
@@ -837,16 +872,29 @@ impl StateStore {
                         } else {
                             // Update the stale index of the tombstone at current version to
                             // current version.
-                            sharded_state_kv_batches[shard_id]
-                                .put::<StaleStateValueIndexSchema>(
-                                    &StaleStateValueIndex {
-                                        stale_since_version: version,
-                                        version,
-                                        state_key: key.clone(),
-                                    },
-                                    &(),
-                                )
-                                .unwrap();
+                            if enable_sharding {
+                                sharded_state_kv_batches[shard_id]
+                                    .put::<StaleStateValueIndexByKeyHashSchema>(
+                                        &StaleStateValueByKeyHashIndex {
+                                            stale_since_version: version,
+                                            version,
+                                            state_key_hash: key.hash(),
+                                        },
+                                        &(),
+                                    )
+                                    .unwrap();
+                            } else {
+                                sharded_state_kv_batches[shard_id]
+                                    .put::<StaleStateValueIndexSchema>(
+                                        &StaleStateValueIndex {
+                                            stale_since_version: version,
+                                            version,
+                                            state_key: key.clone(),
+                                        },
+                                        &(),
+                                    )
+                                    .unwrap();
+                            }
                         }
 
                         let old_version_and_value_opt = if let Some((old_version, old_value_opt)) =
@@ -864,16 +912,29 @@ impl StateStore {
                             items_delta -= 1;
                             bytes_delta -= (key.size() + old_value.size()) as i64;
                             // stale index of the old value at its version.
-                            sharded_state_kv_batches[shard_id]
-                                .put::<StaleStateValueIndexSchema>(
-                                    &StaleStateValueIndex {
-                                        stale_since_version: version,
-                                        version: old_version,
-                                        state_key: key.clone(),
-                                    },
-                                    &(),
-                                )
-                                .unwrap();
+                            if enable_sharding {
+                                sharded_state_kv_batches[shard_id]
+                                    .put::<StaleStateValueIndexByKeyHashSchema>(
+                                        &StaleStateValueByKeyHashIndex {
+                                            stale_since_version: version,
+                                            version: old_version,
+                                            state_key_hash: key.hash(),
+                                        },
+                                        &(),
+                                    )
+                                    .unwrap();
+                            } else {
+                                sharded_state_kv_batches[shard_id]
+                                    .put::<StaleStateValueIndexSchema>(
+                                        &StaleStateValueIndex {
+                                            stale_since_version: version,
+                                            version: old_version,
+                                            state_key: key.clone(),
+                                        },
+                                        &(),
+                                    )
+                                    .unwrap();
+                            }
                         }
                     }
                     usage_delta.push((items_delta, bytes_delta));
@@ -927,9 +988,9 @@ impl StateStore {
 
     pub(crate) fn shard_state_value_batch(
         &self,
-        metadata_batch: &SchemaBatch,
         sharded_batch: &ShardedStateKvSchemaBatch,
         values: &StateValueBatch,
+        enable_sharding: bool,
     ) -> Result<()> {
         values.iter().for_each(|((key, version), value)| {
             let shard_id = key.get_shard_id() as usize;
@@ -938,14 +999,14 @@ impl StateStore {
                 "Invalid shard id: {}",
                 shard_id
             );
-            sharded_batch[shard_id]
-                .put::<StateValueSchema>(&(key.clone(), *version), value)
-                .expect("Inserting into sharded schema batch should never fail");
-
-            if self.state_kv_db.enabled_sharding() {
-                metadata_batch
-                    .put::<StateValueIndexSchema>(&(key.clone(), *version), &())
-                    .expect("Inserting into state value index schema batch should never fail");
+            if enable_sharding {
+                sharded_batch[shard_id]
+                    .put::<StateValueByKeyHashSchema>(&(key.hash(), *version), value)
+                    .expect("Inserting into sharded schema batch should never fail");
+            } else {
+                sharded_batch[shard_id]
+                    .put::<StateValueSchema>(&(key.clone(), *version), value)
+                    .expect("Inserting into sharded schema batch should never fail");
             }
         });
         Ok(())
@@ -1141,6 +1202,7 @@ impl StateStore {
 }
 
 impl StateValueWriter<StateKey, StateValue> for StateStore {
+    // This already turns on sharded KV
     fn write_kv_batch(
         &self,
         version: Version,
@@ -1158,7 +1220,11 @@ impl StateValueWriter<StateKey, StateValue> for StateStore {
             &DbMetadataValue::StateSnapshotProgress(progress),
         )?;
 
-        self.shard_state_value_batch(&batch, &sharded_schema_batch, node_batch)?;
+        self.shard_state_value_batch(
+            &sharded_schema_batch,
+            node_batch,
+            self.state_kv_db.enabled_sharding(),
+        )?;
 
         self.state_kv_db
             .commit(version, batch, sharded_schema_batch)

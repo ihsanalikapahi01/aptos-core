@@ -451,6 +451,7 @@ with tempfile.TemporaryDirectory() as tmpdirname:
     print(f"Warmup - creating DB with {NUM_ACCOUNTS} accounts")
     create_db_command = f"RUST_BACKTRACE=1 {BUILD_FOLDER}/aptos-executor-benchmark --block-size {MAX_BLOCK_SIZE} --execution-threads {NUMBER_OF_EXECUTION_THREADS} {DB_CONFIG_FLAGS} {DB_PRUNER_FLAGS} create-db --data-dir {tmpdirname}/db --num-accounts {NUM_ACCOUNTS}"
     output = execute_command(create_db_command)
+    print("bowu {create_db_command}")
 
     results = []
 
