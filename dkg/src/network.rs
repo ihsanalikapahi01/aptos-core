@@ -97,6 +97,10 @@ impl RBNetworkSender<DKGMessage> for NetworkSender {
     ) -> anyhow::Result<DKGMessage> {
         self.send_rpc(receiver, message, timeout).await
     }
+
+    fn sort_peers_by_latency(&self, peers: &mut [AccountAddress]) {
+        self.dkg_network_client.sort_peers_by_latency(peers)
+    }
 }
 
 pub struct NetworkReceivers {

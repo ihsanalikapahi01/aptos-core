@@ -85,6 +85,10 @@ impl RBNetworkSender<JWKConsensusMsg> for NetworkSender {
             Ok(result)
         }
     }
+
+    fn sort_peers_by_latency(&self, peers: &mut [AccountAddress]) {
+        self.jwk_network_client.sort_peers_by_latency(peers)
+    }
 }
 
 pub trait RpcResponseSender: Send + Sync {

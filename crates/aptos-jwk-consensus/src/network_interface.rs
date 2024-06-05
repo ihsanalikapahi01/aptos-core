@@ -47,4 +47,9 @@ impl<NetworkClient: NetworkClientInterface<JWKConsensusMsg>>
             .send_to_peer_rpc(message, rpc_timeout, peer_network_id)
             .await
     }
+
+    pub fn sort_peers_by_latency(&self, peers: &mut [PeerId]) {
+        self.network_client
+            .sort_peers_by_latency(NetworkId::Validator, peers)
+    }
 }

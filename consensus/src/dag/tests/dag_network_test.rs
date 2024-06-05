@@ -40,6 +40,8 @@ impl RBNetworkSender<DAGMessage, DAGRpcResult> for MockDAGNetworkSender {
     ) -> anyhow::Result<DAGRpcResult> {
         unimplemented!()
     }
+
+    fn sort_peers_by_latency(&self, _: &mut [Author]) {}
 }
 
 #[async_trait]

@@ -11,7 +11,7 @@ use crate::{
 };
 use aptos_config::network_id::{NetworkId, PeerNetworkId};
 use aptos_logger::{prelude::*, sample, sample::SampleRate};
-use aptos_types::network_address::NetworkAddress;
+use aptos_types::{network_address::NetworkAddress, PeerId};
 use async_trait::async_trait;
 use itertools::Itertools;
 use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
@@ -54,7 +54,7 @@ pub trait NetworkClientInterface<Message: NetworkMessageTrait>: Clone + Send + S
 
     /// Sends the given message to each peer in the specified peer list.
     /// Note: this method does not guarantee message delivery or handle responses.
-    fn send_to_peers(&self, _message: Message, _peers: &[PeerNetworkId]) -> Result<(), Error>;
+    fn send_to_peers(&self, _message: Message, _peers: Vec<PeerNetworkId>) -> Result<(), Error>;
 
     /// Sends the given message to the specified peer with the corresponding
     /// timeout. Awaits a response from the peer, or hits the timeout
@@ -65,6 +65,8 @@ pub trait NetworkClientInterface<Message: NetworkMessageTrait>: Clone + Send + S
         _rpc_timeout: Duration,
         _peer: PeerNetworkId,
     ) -> Result<Message, Error>;
+
+    fn sort_peers_by_latency(&self, _network: NetworkId, _peers: &mut [PeerId]);
 }
 
 /// A network component that can be used by client applications (e.g., consensus,
@@ -170,11 +172,11 @@ impl<Message: NetworkMessageTrait> NetworkClientInterface<Message> for NetworkCl
         Ok(network_sender.send_to(peer.peer_id(), direct_send_protocol_id, message)?)
     }
 
-    fn send_to_peers(&self, message: Message, peers: &[PeerNetworkId]) -> Result<(), Error> {
+    fn send_to_peers(&self, message: Message, peers: Vec<PeerNetworkId>) -> Result<(), Error> {
         // Sort peers by protocol
         let mut peers_per_protocol = HashMap::new();
         let mut peers_without_a_protocol = vec![];
-        for peer in peers {
+        for peer in &peers {
             match self
                 .get_preferred_protocol_for_peer(peer, &self.direct_send_protocols_and_preferences)
             {
@@ -223,6 +225,11 @@ impl<Message: NetworkMessageTrait> NetworkClientInterface<Message> for NetworkCl
         Ok(network_sender
             .send_rpc(peer.peer_id(), rpc_protocol_id, message, rpc_timeout)
             .await?)
+    }
+
+    fn sort_peers_by_latency(&self, network_id: NetworkId, peers: &mut [PeerId]) {
+        self.peers_and_metadata
+            .sort_peers_by_latency(network_id, peers)
     }
 }
 

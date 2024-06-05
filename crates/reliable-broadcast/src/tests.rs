@@ -110,6 +110,8 @@ where
         self.received.lock().insert(receiver, message.clone());
         Ok(TestAck(message.0).into())
     }
+
+    fn sort_peers_by_latency(&self, _: &mut [Author]) {}
 }
 
 #[tokio::test]

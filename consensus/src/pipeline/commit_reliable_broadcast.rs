@@ -9,7 +9,7 @@ use aptos_consensus_types::{
 };
 use aptos_infallible::Mutex;
 use aptos_reliable_broadcast::{BroadcastStatus, RBMessage, RBNetworkSender};
-use aptos_types::validator_verifier::ValidatorVerifier;
+use aptos_types::{validator_verifier::ValidatorVerifier, PeerId};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -112,5 +112,9 @@ impl RBNetworkSender<CommitMessage> for NetworkSender {
         };
 
         Ok(response)
+    }
+
+    fn sort_peers_by_latency(&self, peers: &mut [PeerId]) {
+        self.sort_peers_by_latency(peers);
     }
 }
