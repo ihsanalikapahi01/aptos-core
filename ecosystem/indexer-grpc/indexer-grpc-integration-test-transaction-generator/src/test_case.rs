@@ -8,68 +8,159 @@ use anyhow::Context;
 use aptos_protos::transaction::v1::transaction::TransactionType;
 use serde::{Serialize, Deserialize};
 
-const TEST_CASE_CONFIG_FILE_NAME: &str = "test_case_config.yaml";
-const MOVE_FILE_EXTENSION: &str = "move";
+use crate::APTOS_CLI_BINARY_NAME;
 
-/// Struct that holds the configuration for the transaction generator.
-/// All Move files under test case folder will be scanned and executed in order.
-#[derive(Serialize, Deserialize, Debug)]
-struct TestCaseConfig {
-    /// Number of transactions to capture.
-    number_of_transactions: u64,
-    /// Transaction type filter; only included types will be captured.
-    transaction_type_filter: Vec<TransactionType>,
-    // TODO: Allow custom fields to call for the move modules.
+// This module is responsible for loading test cases.
+//
+// An example of the directory structure of the test cases:
+//     move_fixtures/
+//     ├─ simple_move_test/
+//     │  ├─ 0_first_step.move
+//     │  ├─ 1_second_step.move
+//     ├─ full_move_test/
+//     │  ├─ 0_first_step_module/
+//     │  │  ├─ Move.toml
+//     │  │  ├─ sources/
+//     │  ├─ 1_second_step_module/
+//     │  │  ├─ Move.toml
+//     │  │  ├─ sources/
+//     ├─ .../
+//
+// Glossary:
+//
+// - Simple test case
+//     Move files don't contain dependencies other than the framework.
+// - Test case requiring move file compilation.
+//     Move files contain dependencies other than the framework.
+// - Test case step order
+//     All steps are executed in alphabetical order.
+
+const MOVE_FILE_EXTENSION: &str = "move";
+const TEST_CASE_NAME_SPLITTER: &str = "_";
+
+/// Enum to hold the source type of a move file.
+#[derive(Debug)]
+pub(crate) enum MoveSource {
+    // A single file, no compilation needed.
+    SimpleMoveFile(PathBuf),
+    // A directory, compilation needed.
+    // i.e., `aptos move compile ...` + `aptos move run ...`
+    MoveDirectory(PathBuf),
 }
 
 #[derive(Debug)]
 pub(crate) struct TestCase {
     /// The path to the test case folder.
     test_case_folder: PathBuf,
-    /// The configuration for the test case.
-    test_case_config: TestCaseConfig,
     /// Move files to be executed in order.
-    move_files: Vec<PathBuf>,
+    move_sources: Vec<MoveSource>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct AptosCliOutput {
+    #[serde(rename = "Result")]
+    result: AptosCliResult,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct AptosCliResult {
+    // Skip deserialization for rest of the fields.
+    version: u64,
+}
+
 
 impl TestCase {
     /// Creates a new test case from the given test case folder.
     /// It reads the config file first and scans for all move files in the `test_case_folder` folder.
-
     fn load(test_case_folder: PathBuf) -> anyhow::Result<Self> {
         // Makes sure target folder exists.
         if !test_case_folder.is_dir() {
             return Err(anyhow::anyhow!(format!("Test case folder does not exist or path is not a folder at path {:?}.", test_case_folder)));
         }
 
-        // Loads the config file.
-        let test_case_config_path = test_case_folder.join(TEST_CASE_CONFIG_FILE_NAME);
-        let test_case_config_raw = std::fs::read_to_string(&test_case_config_path)
-            .context(format!("Config file not found at path {:?}.", test_case_config_path))?;
-        let test_case_config: TestCaseConfig = serde_yaml::from_str(&test_case_config_raw)
-            .context(format!("Config file is malformed at path {:?}.", test_case_config_path))?;
-
         // Scan all move files.
-        let mut move_files: Vec<PathBuf> = vec![];
+        let mut move_files: Vec<(u32, MoveSource)> = vec![];
         let entries =  std::fs::read_dir(&test_case_folder)
             .context(format!("Failed to scan test case folder at path {:?}", test_case_folder))?;
         for entry in entries {
             let entry = entry.context("Failed to scan move files for one test case.")?;
             let path = entry.path();
-            match path.extension() {
-                Some(ext) if path.is_file() && ext == MOVE_FILE_EXTENSION => move_files.push(path),
-                _ => continue,
+
+            // Files are fed from the file system, so it's safe to unwrap.
+            let file_name = path.file_name().expect("File scan under current test case failed.").to_str().unwrap();
+
+            // File name should be in the format of `N_test_name' or `N_test_name.move`.
+            // Where N is the step number.
+            let split_string: Vec<&str> = file_name.split(TEST_CASE_NAME_SPLITTER).collect();
+
+            if split_string.len() < 2 {
+                // Skip files that don't match the format.
+                continue;
+            }
+            let test_index = split_string[0].parse::<u32>().unwrap();
+            println!("test_index: {:?}", path);
+            if path.is_file() && path.extension().unwrap() == MOVE_FILE_EXTENSION {
+                move_files.push((test_index, MoveSource::SimpleMoveFile(path)));
+            } else if path.is_dir() {
+                // If the path is a directory, it's a move directory.
+                move_files.push((test_index, MoveSource::MoveDirectory(path)));
+            } else {
+                // Skip files that don't match the format.
+                println!("Skipping file: {:?}", path);
+                continue;
             }
         }
+
         // Sort the vector by file name.
-        // Unwrap is safe because file names are fed from the file system.
-        move_files.sort_by_key(|dir| dir.file_name().unwrap().to_os_string());
+        move_files.sort_by_key(|dir| dir.0);
+
+        // Make sure there is at least one move file.
+        if move_files.is_empty() {
+            return Err(anyhow::anyhow!(format!("No move files found in the test case folder at {:?}.", test_case_folder)));
+        }
+
+        let first_idx = move_files[0].0;
+
+        // Make sure the move files are in order.
+        for i in 0..move_files.len() {
+            if move_files[i].0 != first_idx + i as u32 {
+                return Err(anyhow::anyhow!(format!("Move files are not consecutive {:?}.", test_case_folder)));
+            }
+        }
 
         Ok(Self {
             test_case_folder,
-            test_case_config,
-            move_files,
+            move_sources: move_files.into_iter().map(|(_, source)| source).collect(),
         })
+    }
+
+    /// Submits the test case to the localnet.
+    pub(crate) fn submit(&self) -> anyhow::Result<Vec<u64>> {
+        println!("Submitting test case: {:?}", &self.test_case_folder);
+        let mut results = Vec::new();
+        for move_source in &self.move_sources {
+            let result = match move_source {
+                MoveSource::SimpleMoveFile(path) => {
+                    // Execute the move file in a different process.
+                    std::process::Command::new(APTOS_CLI_BINARY_NAME)
+                        .arg("move")
+                        .arg("run-script")
+                        .arg("--script-path")
+                        .arg(path)
+                        .arg("--assume-yes")
+                        .output()
+                        .context("Failed to execute move file.")
+
+                }
+                MoveSource::MoveDirectory(_path) => {
+                    // Compile and execute the move directory.
+                    unimplemented!();
+                }
+            }.context("Test case execution failed.")?;
+            let aptos_cli_output: AptosCliOutput = serde_json::from_slice(&result.stdout).context("Failed to parse aptos output.")?;
+            results.push(aptos_cli_output.result.version);
+        }
+        Ok(results)
     }
 }
 
@@ -80,146 +171,21 @@ pub(crate) fn load_all_test_cases(test_cases_folder: &PathBuf) -> anyhow::Result
     for entry in entries {
         let entry = entry.context("Failed to scan test cases due to FS issue.")?;
         let path = entry.path();
-        if path.is_dir() {
+        if path.is_dir() && path.file_name().unwrap().to_str().unwrap().starts_with("test"){
             test_cases.push(TestCase::load(path).context("One test case loading failed.")?);
         }
     }
+    tracing::info!("{} test cases loaded.", test_cases.len());
     Ok(test_cases)
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn test_test_case_parsing_from_folder() {
-        // tempdir creates a temporary directory and returns a PathBuf to it.
-        let dir = tempfile::tempdir().unwrap();
-        let test_case_folder = dir.path().to_path_buf();
-        let test_case_config_path = test_case_folder.join(TEST_CASE_CONFIG_FILE_NAME);
-        let test_case_config_raw = r#"---
-            number_of_transactions: 10
-            transaction_type_filter:
-                - TRANSACTION_TYPE_VALIDATOR
-        "#;
-        std::fs::write(test_case_config_path, test_case_config_raw).unwrap();
-        // Create a move file.
-        let move_file_path = test_case_folder.join("0.move");
-        std::fs::write(move_file_path, "").unwrap();
-        let test_case = TestCase::load(test_case_folder);
-        assert!(test_case.is_ok());
-        let test_case = test_case.unwrap();
-        assert_eq!(test_case.test_case_config.number_of_transactions, 10);
-        assert_eq!(test_case.test_case_config.transaction_type_filter, vec![TransactionType::Validator]);
-        assert_eq!(test_case.move_files.len(), 1);
-    }
-
-    #[test]
-    fn test_test_case_parsing_from_folder_malformed_config() {
-        // tempdir creates a temporary directory and returns a PathBuf to it.
-        let dir = tempfile::tempdir().unwrap();
-        let test_case_folder = dir.path().to_path_buf();
-        let test_case_config_path = test_case_folder.join(TEST_CASE_CONFIG_FILE_NAME);
-        let test_case_config_raw = r#"---
-            number_of_transactions: ten
-            transaction_type_filter:
-                - TRANSACTION_TYPE_VALIDATOR
-        "#;
-        std::fs::write(test_case_config_path, test_case_config_raw).unwrap();
-        let test_case= TestCase::load(test_case_folder);
-        assert!(test_case.is_err());
-        assert!(test_case.unwrap_err().to_string().contains("Config file is malformed"));
-    }
-
-    #[test]
-    fn test_test_case_parsing_from_folder_no_config() {
-        // tempdir creates a temporary directory and returns a PathBuf to it.
-        let dir = tempfile::tempdir().unwrap();
-        let test_case_folder = dir.path().to_path_buf();
-        let test_case = TestCase::load(test_case_folder);
-        assert!(test_case.is_err());
-        assert!(test_case.unwrap_err().to_string().contains("Config file not found"));
-    }
-
-    #[test]
-    fn test_test_case_parsing_from_folder_file_path_provided() {
-        // creates a temp file.
-        let file = tempfile::NamedTempFile::new().unwrap();
-        let test_case = TestCase::load(file.path().to_path_buf());
-        assert!(test_case.is_err());
-        assert!(test_case.unwrap_err().to_string().contains("Test case folder does not exist or path is not a folder"));
-    }
-
-
-    #[test]
-    fn test_test_cases_parsing_successfuly() {
-        // tempdir creates a temporary directory and returns a PathBuf to it.
-        let dir = tempfile::tempdir().unwrap();
-        let test_cases_folder = dir.path().to_path_buf();
-
-        // Create a test case folder.
-        let test_case_folder = test_cases_folder.join("test_case_1");
-        std::fs::create_dir(&test_case_folder).unwrap();
-        let test_case_config_path = test_case_folder.join(TEST_CASE_CONFIG_FILE_NAME);
-        let test_case_config_raw = r#"---
-            number_of_transactions: 10
-            transaction_type_filter:
-                - TRANSACTION_TYPE_VALIDATOR
-        "#;
-        std::fs::write(test_case_config_path, test_case_config_raw).unwrap();
-
-        // Create a move file.
-        let move_file_path = test_case_folder.join("0.move");
-        std::fs::write(move_file_path, "").unwrap();
-
-        // Verify the test case is loaded successfully.
-        let test_cases = load_all_test_cases(&test_cases_folder).unwrap();
-        assert_eq!(test_cases.len(), 1);
-        assert_eq!(test_cases[0].test_case_config.number_of_transactions, 10);
-        assert_eq!(test_cases[0].test_case_config.transaction_type_filter, vec![TransactionType::Validator]);
-        assert_eq!(test_cases[0].move_files.len(), 1);
-    }
-
-    #[test]
-    fn test_test_cases_parsing_with_test_loading_failure() {
-        // tempdir creates a temporary directory and returns a PathBuf to it.
-        let dir = tempfile::tempdir().unwrap();
-        let test_cases_folder = dir.path().to_path_buf();
-
-        // Create a test case folder.
-        let test_case_folder = test_cases_folder.join("test_case_1");
-        std::fs::create_dir(&test_case_folder).unwrap();
-        let test_case_config_path = test_case_folder.join(TEST_CASE_CONFIG_FILE_NAME);
-        let test_case_config_raw = r#"---
-            number_of_transactions: 10
-            transaction_type_filter:
-                - TRANSACTION_TYPE_VALIDATOR
-        "#;
-        std::fs::write(test_case_config_path, test_case_config_raw).unwrap();
-
-        // Malformed config file.
-        let test_case_folder = test_cases_folder.join("test_case_2");
-        std::fs::create_dir(&test_case_folder).unwrap();
-        let test_case_config_path = test_case_folder.join(TEST_CASE_CONFIG_FILE_NAME);
-        let test_case_config_raw = r#"---
-            number_of_transactions: ten
-            transaction_type_filter:
-                - TRANSACTION_TYPE_VALIDATOR
-        "#;
-        std::fs::write(test_case_config_path, test_case_config_raw).unwrap();
-
-        // Verify the test case is loaded successfully.
-        let test_cases = load_all_test_cases(&test_cases_folder);
-        assert!(test_cases.is_err());
-        assert!(test_cases.unwrap_err().to_string().contains("One test case loading failed"));
-    }
-
-    #[test]
-    fn test_test_cases_parsing_with_non_existing_folder() {
-        // Verify the test case is loaded successfully.
-        let test_cases = load_all_test_cases("/what/ever/folder");
-        assert!(test_cases.is_err());
-        assert!(test_cases.unwrap_err().to_string().contains("Main test case folder does not exist or path is not a folder"));
+    fn test_load_test_case() {
+        let test_case_folder = PathBuf::from("fixtures/simple_move_test");
+        let test_case = TestCase::load(test_case_folder).unwrap();
+        assert_eq!(test_case.move_sources.len(), 2);
     }
 }

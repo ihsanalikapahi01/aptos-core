@@ -2118,12 +2118,14 @@ dependencies = [
  "regex",
  "reqwest",
  "serde",
+ "serde_json",
  "serde_yaml 0.8.26",
  "tempfile",
  "thiserror",
  "tokio",
  "tracing",
  "url",
+ "which",
 ]
 
 [[package]]
