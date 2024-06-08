@@ -3815,12 +3815,21 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
     ) -> Option<()> {
         let mut succeed = true;
         let mut fields_not_covered: BTreeSet<Symbol> = BTreeSet::new();
+        let empty_field = self
+            .parent
+            .parent
+            .struct_table
+            .get(&struct_name)
+            .unwrap()
+            .empty_struct;
         // Exclude from the covered fields the dummy_field added by legacy compiler
-        fields_not_covered.extend(
-            field_decls
-                .keys()
-                .filter(|s| *s != &self.parent.dummy_field_name()),
-        );
+        fields_not_covered.extend(field_decls.keys().filter(|s| {
+            if empty_field {
+                *s != &self.parent.dummy_field_name()
+            } else {
+                true
+            }
+        }));
         for (name_loc, name, (_, _)) in fields.iter() {
             let field_name = self.symbol_pool().make(name);
             if let Some((_, _, _)) = field_decls.get(&field_name) {

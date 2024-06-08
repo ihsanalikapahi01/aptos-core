@@ -1149,6 +1149,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         et.set_translate_move_fun(); // translating structs counts as move fun, not spec
         let loc = et.to_loc(&name.0.loc);
         et.define_type_params(&loc, &type_params, false);
+        let mut empty = false;
         let fields = match &def.fields {
             EA::StructFields::Defined(fields) => {
                 let mut field_map = BTreeMap::new();
@@ -1175,6 +1176,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                     let field_sym = et.parent.dummy_field_name();
                     let field_ty = Type::new_prim(PrimitiveType::Bool);
                     field_map.insert(field_sym, (loc.clone(), 0, field_ty));
+                    empty = true;
                 }
                 Some(field_map)
             },
@@ -1185,6 +1187,11 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
             .get_mut(&qsym)
             .expect("struct invalid")
             .fields = fields;
+        self.parent
+            .struct_table
+            .get_mut(&qsym)
+            .expect("struct invalid")
+            .empty_struct = empty;
     }
 
     /// The name of a dummy field the legacy Move compilers adds to zero-arity structs.
