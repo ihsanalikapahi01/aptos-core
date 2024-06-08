@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use aptos_rest_client::Client;
-use aptos_types::on_chain_config::OnChainConsensusConfig;
+use aptos_types::on_chain_config::{OnChainConsensusConfig, OnChainExecutionConfig};
 use move_core_types::language_storage::CORE_CODE_ADDRESS;
 
 pub(crate) async fn get_current_version(rest_client: &Client) -> u64 {
@@ -20,6 +20,20 @@ pub(crate) async fn get_current_consensus_config(rest_client: &Client) -> OnChai
             .get_account_resource_bcs::<Vec<u8>>(
                 CORE_CODE_ADDRESS,
                 "0x1::consensus_config::ConsensusConfig",
+            )
+            .await
+            .unwrap()
+            .into_inner(),
+    )
+    .unwrap()
+}
+
+pub(crate) async fn get_current_execution_config(rest_client: &Client) -> OnChainExecutionConfig {
+    bcs::from_bytes(
+        &rest_client
+            .get_account_resource_bcs::<Vec<u8>>(
+                CORE_CODE_ADDRESS,
+                "0x1::execution_config::ExecutionConfig",
             )
             .await
             .unwrap()
